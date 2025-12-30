@@ -1,53 +1,48 @@
 from bot.database import get_db
+from datetime import datetime
+
+MAX_PLAYERS = {
+    "solo": 10,
+    "duel": 2
+}
 
 
-def create_match(owner_id: int, mode: str):
+def mark_match_finished(match_id: int):
     with get_db() as db:
         db.execute(
-            """
-            INSERT INTO matches (owner_id, mode, is_active)
-            VALUES (?, ?, 1)
-            """,
-            (owner_id, mode)
-        )
-        db.commit()
-
-
-def get_active_match():
-    with get_db() as db:
-        cur = db.execute(
-            "SELECT id, owner_id, mode FROM matches WHERE is_active = 1 LIMIT 1"
-        )
-        return cur.fetchone()
-
-
-def join_match(match_id: int, user_id: int):
-    with get_db() as db:
-        db.execute(
-            "INSERT INTO match_players (match_id, user_id) VALUES (?, ?)",
-            (match_id, user_id)
-        )
-        db.commit()
-
-
-def leave_match(match_id: int, user_id: int):
-    with get_db() as db:
-        db.execute(
-            "DELETE FROM match_players WHERE match_id = ? AND user_id = ?",
-            (match_id, user_id)
-        )
-        db.commit()
-
-
-def get_players(match_id: int):
-    with get_db() as db:
-        cur = db.execute(
-            """
-            SELECT u.telegram_id, u.nickname
-            FROM users u
-            JOIN match_players mp ON u.telegram_id = mp.user_id
-            WHERE mp.match_id = ?
-            """,
+            "UPDATE matches SET status='finished' WHERE id=?",
             (match_id,)
         )
-        return cur.fetchall()
+
+
+def get_active_matches():
+    with get_db() as db:
+        return db.execute(
+            """
+            SELECT id, mode, buy_in
+            FROM matches
+            WHERE status='in_game'
+            """
+        ).fetchall()
+
+
+def get_match_players_full(match_id: int):
+    with get_db() as db:
+        return db.execute(
+            """
+            SELECT u.telegram_id, u.player_tag, u.referrer_id
+            FROM match_players mp
+            JOIN users u ON u.telegram_id = mp.telegram_id
+            WHERE mp.match_id=?
+            """,
+            (match_id,)
+        ).fetchall()
+
+
+def get_match_start_time(match_id: int):
+    with get_db() as db:
+        row = db.execute(
+            "SELECT created_at FROM matches WHERE id=?",
+            (match_id,)
+        ).fetchone()
+        return datetime.fromisoformat(row[0])
