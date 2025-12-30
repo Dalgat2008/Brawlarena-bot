@@ -1,99 +1,63 @@
-import logging
-from datetime import datetime
+from aiogram import Bot, Dispatcher, executor, types
 
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import CommandStart
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from aiogram.utils.keyboard import ReplyKeyboardBuilder
+from bot.database import init_db
+from bot.users import register_user, get_user
+from bot.matches import create_match, join_match
+from bot.payments import get_balance, add_balance, hold_balance
+from bot.referrals import bind_referral
 
-from config import BOT_TOKEN
-
-logging.basicConfig(level=logging.INFO)
+BOT_TOKEN = "8540060264:AAGun7H2Jxrml9kt4s4su-aQkxmeXF7SX5c"
 
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
-
-# --------------------
-# ВРЕМЕННОЕ ХРАНИЛИЩЕ ПОЛЬЗОВАТЕЛЕЙ
-# потом заменим на БД
-# --------------------
-users = {}
+dp = Dispatcher(bot)
 
 
-def main_menu():
-    kb = ReplyKeyboardBuilder()
-    kb.add(KeyboardButton(text="👤 Профиль"))
-    kb.add(KeyboardButton(text="🎮 Найти матч"))
-    kb.adjust(1)
-    return kb.as_markup(resize_keyboard=True)
+@dp.message_handler(commands=["start"])
+async def start(msg: types.Message):
+    args = msg.get_args()
+    if args.isdigit():
+        bind_referral(msg.from_user.id, int(args))
 
-
-# --------------------
-# /start — регистрация
-# --------------------
-@dp.message(CommandStart())
-async def start_handler(message: types.Message):
-    user_id = message.from_user.id
-
-    if user_id not in users:
-        users[user_id] = {
-            "id": user_id,
-            "username": message.from_user.username,
-            "registered_at": datetime.now(),
-            "games": 0,
-            "wins": 0,
-            "balance": 0
-        }
-
-    await message.answer(
-        "🔥 Добро пожаловать в *Brawlarena!*\n\n"
-        "Здесь ты можешь участвовать в кастомных матчах Brawl Stars.",
-        reply_markup=main_menu(),
-        parse_mode="Markdown"
+    await msg.answer(
+        "🎮 BrawlArena\n\n"
+        "/register TAG\n"
+        "/balance\n"
+        "/deposit AMOUNT\n"
+        "/create_solo AMOUNT\n"
     )
 
 
-# --------------------
-# Профиль игрока
-# --------------------
-@dp.message(lambda m: m.text == "👤 Профиль")
-async def profile_handler(message: types.Message):
-    user = users.get(message.from_user.id)
+@dp.message_handler(commands=["register"])
+async def register(msg: types.Message):
+    tag = msg.get_args()
+    register_user(msg.from_user.id, msg.from_user.username, tag)
+    await msg.answer("✅ Регистрация успешна")
 
-    if not user:
-        await message.answer("❌ Профиль не найден. Напиши /start")
+
+@dp.message_handler(commands=["balance"])
+async def balance(msg: types.Message):
+    bal = get_balance(msg.from_user.id)
+    await msg.answer(f"💰 Баланс: {bal} USDT")
+
+
+@dp.message_handler(commands=["deposit"])
+async def deposit(msg: types.Message):
+    amount = float(msg.get_args())
+    add_balance(msg.from_user.id, amount)
+    await msg.answer(f"✅ Баланс пополнен на {amount}")
+
+
+@dp.message_handler(commands=["create_solo"])
+async def create_solo(msg: types.Message):
+    amount = float(msg.get_args())
+    if not hold_balance(msg.from_user.id, amount):
+        await msg.answer("❌ Недостаточно средств")
         return
 
-    text = (
-        f"👤 *Твой профиль*\n\n"
-        f"🆔 ID: `{user['id']}`\n"
-        f"👤 Username: @{user['username']}\n"
-        f"🎮 Игр сыграно: {user['games']}\n"
-        f"🏆 Побед: {user['wins']}\n"
-        f"💰 Баланс: {user['balance']} ₽"
-    )
-
-    await message.answer(text, parse_mode="Markdown")
-
-
-# --------------------
-# Заглушка под матчи
-# --------------------
-@dp.message(lambda m: m.text == "🎮 Найти матч")
-async def match_stub(message: types.Message):
-    await message.answer(
-        "⏳ Поиск матча скоро будет доступен.\n"
-        "Этот раздел мы сделаем в *Блоке 3*."
-    )
-
-
-# --------------------
-# Запуск
-# --------------------
-async def main():
-    await dp.start_polling(bot)
-
+    match_id = create_match(msg.from_user.id, "solo")
+    await msg.answer(f"✅ Матч создан ID {match_id}")
+    
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    init_db()
+    executor.start_polling(dp)
